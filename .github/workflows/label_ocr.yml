@@ -34,5 +34,5 @@ jobs:
           git config --global user.name "LabelBot"
           git config --global user.email "bot@github.com"
           git add labels/
-          git commit -m "Automated: Moved processed labels to history" || echo "No changes to commit"
+          git commit -m "Automated: Moved processed labels to history" || echo "No changes to commit here"
           git push

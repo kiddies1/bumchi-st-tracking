@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - 'labels/pending/**'
+  workflow_dispatch: # Enable manual trigger
 
 jobs:
   ocr-job:

@@ -26,6 +26,8 @@ if __name__ == "__main__":
         sys.exit(0)
 
     for filename in files:
+        if filename == ".gitkeep":
+        continue
         full_path = os.path.join(target_dir, filename)
         process_label(full_path)
         

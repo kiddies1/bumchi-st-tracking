@@ -27,7 +27,7 @@ if __name__ == "__main__":
 
     for filename in files:
         if filename == ".gitkeep":
-        continue
+            continue
         full_path = os.path.join(target_dir, filename)
         process_label(full_path)
         

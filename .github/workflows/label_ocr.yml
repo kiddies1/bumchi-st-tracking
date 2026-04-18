@@ -3,33 +3,28 @@ on:
   push:
     paths:
       - 'labels/pending/**'
-  workflow_dispatch: # Enable manual trigger
+  workflow_dispatch:
 
 env:
-  # This tells GitHub to use the newer Node engine and stops the warning
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true 
-  # This forces Python to show logs immediately (Fixes your "missing print" issue)
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PYTHONUNBUFFERED: "1"
 
 jobs:
   ocr-job:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5 # Updated to v5
         with:
-          python-version: '3.10'
+          python-version: '3.12' # Using a modern version to avoid EOL warnings
 
       - name: Install Dependencies
-        run: pip install google-generativeai
-
-      - name: Create Processed Folder
-        run: mkdir -p labels/processed
+        run: pip install google-genai # Updated to the new package
 
       - name: Run OCR and Move Files
         env:
@@ -41,5 +36,5 @@ jobs:
           git config --global user.name "LabelBot"
           git config --global user.email "bot@github.com"
           git add labels/
-          git commit -m "Automated: Moved processed labels to history" || echo "No changes to commit here"
+          git commit -m "Automated: Moved processed labels" || echo "No changes"
           git push

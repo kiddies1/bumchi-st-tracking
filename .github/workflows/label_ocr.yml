@@ -34,7 +34,7 @@ jobs:
       - name: Run OCR and Move Files
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python process_label.py
+        run: python -u process_label.py
 
       - name: Commit Move
         run: |

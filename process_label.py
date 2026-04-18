@@ -6,19 +6,26 @@ from google import genai
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 def process_label(image_path):
-    # Skip non-image files like .gitkeep
-    if not image_path.lower().endswith(('.png', '.jpg', '.jpeg')):
+    # Only process image files
+    ext = image_path.lower().split('.')[-1]
+    if ext not in ['png', 'jpg', 'jpeg']:
         return None
+
+    # Determine the correct mime type
+    mime_type = "image/jpeg" if ext in ['jpg', 'jpeg'] else "image/png"
 
     print(f"Processing: {image_path}")
     
-    # Use the new SDK methods
     with open(image_path, "rb") as f:
         image_bytes = f.read()
         
+    # We use types.Part.from_bytes to tell the SDK exactly what we're sending
     response = client.models.generate_content(
         model="gemini-1.5-flash",
-        contents=["Extract only the Order ID from this label. Return just the digits.", image_bytes]
+        contents=[
+            "Extract only the Order ID from this label. Return just the digits.",
+            types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+        ]
     )
     
     order_id = response.text.strip()

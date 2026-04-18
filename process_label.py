@@ -4,7 +4,10 @@ from google import genai
 from google.genai import types
 
 # Setup the new client
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+client = genai.Client(
+    api_key=os.environ["GEMINI_API_KEY"],
+    http_options={'api_version': 'v1'} # Add this line!
+)
 
 def process_label(image_path):
     # Only process image files

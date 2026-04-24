@@ -120,7 +120,7 @@ def process_label(image_path):
         try:
             # Switched to the more stable 1.5-flash model to avoid high demand errors
             response = client.models.generate_content(
-                model="gemini-1.5-flash", 
+                model="gemini-2.5-flash", 
                 contents=[
                     "Extract Order ID, Name, and Phone. Also find the ST Courier tracking number from the barcode label.",
                     types.Part.from_bytes(data=image_bytes, mime_type=mime_type)

@@ -1,21 +1,38 @@
 import os
 import sys
+import csv
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
 from typing import Optional
 
-# 1. Define the exact data structure we want back from Gemini
+# 1. Added tracking_id to the schema
 class ShippingDetails(BaseModel):
     order_id: Optional[str]
     name: Optional[str]
     phone: Optional[str]
+    tracking_id: Optional[str] # New Field
 
-# Setup the client
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
+def save_to_csv(details: ShippingDetails):
+    csv_file = "shipping_data.csv"
+    file_exists = os.path.isfile(csv_file)
+    
+    with open(csv_file, mode='a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        # Write header only if the file is new
+        if not file_exists:
+            writer.writerow(["Order ID", "Name", "Phone", "Tracking ID"])
+        
+        writer.writerow([
+            details.order_id, 
+            details.name, 
+            details.phone, 
+            details.tracking_id
+        ])
+
 def process_label(image_path):
-    # Only process image files
     ext = image_path.lower().split('.')[-1]
     if ext not in ['png', 'jpg', 'jpeg']:
         return None
@@ -27,33 +44,35 @@ def process_label(image_path):
         image_bytes = f.read()
         
     try:
-        # 2. Pass our schema into the GenerateContentConfig
         response = client.models.generate_content(
             model="gemini-3-flash-preview",
             contents=[
-                "Extract the Order ID, Recipient Name, and Phone Number from this shipping label.",
+                # Updated Prompt to specifically mention the ST Courier barcode
+                "Extract the Order ID, Recipient Name, and Phone Number. "
+                "Also, locate the ST Courier barcode and extract the tracking number associated with it.",
                 types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
             ],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=ShippingDetails,
-                temperature=0.1, # Low temperature forces the model to stick strictly to the text it sees
+                temperature=0.1,
             )
         )
         
-        # 3. The SDK automatically parses the JSON into our Python object
         details: ShippingDetails = response.parsed
         
-        print(f"--- Extracted Details ---")
-        print(f"Order ID : {details.order_id}")
-        print(f"Name     : {details.name}")
-        print(f"Phone    : {details.phone}")
+        # Save the result to our CSV file
+        save_to_csv(details)
+        
+        print(f"--- Extracted & Saved ---")
+        print(f"Tracking ID: {details.tracking_id}")
+        print(f"Name       : {details.name}")
         print(f"-------------------------")
         
         return details
         
     except Exception as e:
-        print(f"Error communicating with Gemini API: {e}")
+        print(f"Error: {e}")
         return None
 
 if __name__ == "__main__":
@@ -63,20 +82,13 @@ if __name__ == "__main__":
     if not os.path.exists(processed_dir):
         os.makedirs(processed_dir)
 
-    if os.path.exists(target_dir):
-        files = [f for f in os.listdir(target_dir) if not f.startswith('.')]
-    else:
-        files = []
+    files = [f for f in os.listdir(target_dir) if not f.startswith('.')] if os.path.exists(target_dir) else []
     
     if not files:
-        print("No new labels found in labels/pending/")
+        print("No new labels found.")
         sys.exit(0)
 
     for filename in files:
         full_path = os.path.join(target_dir, filename)
-        
         process_label(full_path)
-        
-        new_path = os.path.join(processed_dir, filename)
-        os.rename(full_path, new_path)
-        print(f"Moved to: {new_path}\n")
+        os.rename(full_path, os.path.join(processed_dir, filename))

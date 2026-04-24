@@ -3,31 +3,36 @@ import csv
 import json
 import time
 import requests
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
 from typing import Optional
 
-# 1. Schema Definition
+# --- Configuration & Secrets ---
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
+WA_TOKEN = os.environ.get("WHATSAPP_TOKEN")
+WA_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_ID") 
+WA_TEMPLATE_NAME = "YOUR_APPROVED_TEMPLATE_NAME"
+
+EMAIL_SENDER = os.environ.get("GMAIL_SENDER")
+EMAIL_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
+EMAIL_RECIPIENT = "bumchi321@gmail.com"
+
+# --- Schema Definition ---
 class ShippingDetails(BaseModel):
     order_id: Optional[str]
     name: Optional[str]
     phone: Optional[str]
     tracking_id: Optional[str]
 
-# Setup Gemini Client
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-
-# --- WhatsApp API Configuration ---
-WA_TOKEN = os.environ.get("WHATSAPP_TOKEN")
-WA_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_ID") 
-WA_TEMPLATE_NAME = "tracking_details" # Ensure this matches Meta exactly
-
 def send_whatsapp_message(details: ShippingDetails):
-    # Hardcoded for testing. Later replace with: to_number = details.phone
-    to_number = "919994555088" 
-    
+    """Sends the WA message and returns a tuple: (Success_Boolean, Error_Message)"""
+    to_number = "919994555088" # Hardcoded for testing
     url = f"https://graph.facebook.com/v19.0/{WA_PHONE_NUMBER_ID}/messages"
     
     headers = {
@@ -35,71 +40,136 @@ def send_whatsapp_message(details: ShippingDetails):
         "Content-Type": "application/json"
     }
     
-    # Updated payload: Now includes "parameter_name" to satisfy Meta's named variable requirements
     payload = {
         "messaging_product": "whatsapp",
         "to": to_number,
         "type": "template",
         "template": {
             "name": WA_TEMPLATE_NAME,
-            "language": {
-                "code": "en" 
-            },
+            "language": {"code": "en"},
             "components": [
                 {
                     "type": "body",
                     "parameters": [
-                        {"type": "text", "parameter_name": "name", "text": details.name or "Customer"},
-                        {"type": "text", "parameter_name": "order_id", "text": details.order_id or "Unknown"},
-                        {"type": "text", "parameter_name": "courier_name", "text": "S T Couriers"},
-                        {"type": "text", "parameter_name": "tracking_id", "text": details.tracking_id or "Pending"},
-                        {"type": "text", "parameter_name": "tracking_url", "text": "https://stcourier.com/track/shipment"}
+                        {"type": "text", "text": details.name or "Customer"},
+                        {"type": "text", "text": details.order_id or "Unknown"},
+                        {"type": "text", "text": "S T Couriers"},
+                        {"type": "text", "text": details.tracking_id or "Pending"},
+                        {"type": "text", "text": "https://stcourier.com/track/shipment"}
                     ]
                 }
             ]
         }
     }
 
-    print("\nSending WhatsApp Message...")
-    
     try:
         response = requests.post(url, headers=headers, json=payload)
         response.raise_for_status()
-        print(f"✅ WhatsApp message successfully sent to {to_number} for order {details.order_id}")
-        
+        return True, "Sent Successfully", payload
     except requests.exceptions.RequestException as e:
-        print(f"❌ Failed to send WhatsApp message. Error: {e}")
-        if response is not None and response.text:
-            print(f"Raw Meta API Response: {response.text}")
-            
-        # Optional: Print the payload on failure for easier debugging
-        print("Payload sent:")
-        print(json.dumps(payload, indent=2))
+        error_msg = response.text if response is not None and response.text else str(e)
+        return False, f"API Error: {error_msg}", payload
 
-def log_to_csv(details: ShippingDetails, filename: str):
+def log_to_csv(result: dict):
+    """Writes every attempt to the CSV, regardless of success."""
     csv_file = "shipping_master_log.csv"
     file_exists = os.path.isfile(csv_file)
     
     with open(csv_file, mode='a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow(["Timestamp", "Source File", "Order ID", "Name", "Phone", "Tracking ID"])
+            writer.writerow(["Timestamp", "Source File", "Order ID", "Name", "Extracted Phone", "Tracking ID", "Gemini Status", "WhatsApp Status", "Notes"])
         
         writer.writerow([
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            filename,
-            details.order_id, 
-            details.name, 
-            details.phone, 
-            details.tracking_id
+            result['filename'],
+            result.get('order_id', ''),
+            result.get('name', ''),
+            result.get('phone', ''),
+            result.get('tracking_id', ''),
+            result['gemini_status'],
+            result['wa_status'],
+            result['notes']
         ])
+
+def send_summary_email(run_results: list):
+    """Formats the run results into an HTML table and sends an email."""
+    if not EMAIL_SENDER or not EMAIL_PASSWORD:
+        print("Skipping email summary: GMAIL_SENDER or GMAIL_APP_PASSWORD not configured.")
+        return
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"Bumchi Label Processing Summary - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    msg["From"] = EMAIL_SENDER
+    msg["To"] = EMAIL_RECIPIENT
+
+    success_count = sum(1 for r in run_results if r['gemini_status'] == 'Success' and r['wa_status'] == 'Success')
+    total = len(run_results)
+
+    html_content = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; color: #333;">
+        <h2>Bumchi Label OCR Run Summary</h2>
+        <p><strong>Total Processed:</strong> {total}<br>
+        <strong>Fully Successful:</strong> {success_count}<br>
+        <strong>Failures/Partial:</strong> {total - success_count}</p>
+        
+        <table border="1" cellpadding="8" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+          <tr style="background-color: #f2f2f2; text-align: left;">
+            <th>Filename</th>
+            <th>Order Details</th>
+            <th>Extracted Phone</th>
+            <th>Gemini Status</th>
+            <th>WA Status</th>
+            <th>Notes / Template Message</th>
+          </tr>
+    """
+
+    for r in run_results:
+        wa_color = "green" if r['wa_status'] == "Success" else "red"
+        gemini_color = "green" if r['gemini_status'] == "Success" else "red"
+        
+        # Format the payload to show what was sent
+        payload_str = f"<br><br><small><b>Message Payload:</b><br>{json.dumps(r.get('wa_payload', {}), indent=2)}</small>" if r.get('wa_payload') else ""
+        
+        html_content += f"""
+          <tr>
+            <td>{r['filename']}</td>
+            <td><b>ID:</b> {r.get('order_id', 'N/A')}<br><b>Name:</b> {r.get('name', 'N/A')}<br><b>Track:</b> {r.get('tracking_id', 'N/A')}</td>
+            <td>{r.get('phone', 'N/A')}</td>
+            <td style="color: {gemini_color};"><b>{r['gemini_status']}</b></td>
+            <td style="color: {wa_color};"><b>{r['wa_status']}</b></td>
+            <td>{r['notes']} {payload_str}</td>
+          </tr>
+        """
+    
+    html_content += """
+        </table>
+      </body>
+    </html>
+    """
+
+    msg.attach(MIMEText(html_content, "html"))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_SENDER, EMAIL_RECIPIENT, msg.as_string())
+        print(f"Summary email successfully sent to {EMAIL_RECIPIENT}")
+    except Exception as e:
+        print(f"Failed to send email summary: {e}")
 
 def process_label(image_path):
     filename = os.path.basename(image_path)
     ext = filename.lower().split('.')[-1]
     mime_type = "image/png" if ext == "png" else "image/jpeg"
     
-    print(f"\n--- Starting OCR for: {filename} ---")
+    # Base dictionary to hold this image's results
+    result = {
+        "filename": filename, "order_id": "", "name": "", "phone": "", 
+        "tracking_id": "", "gemini_status": "Pending", "wa_status": "Pending", 
+        "notes": "", "wa_payload": {}
+    }
     
     with open(image_path, "rb") as f:
         image_bytes = f.read()
@@ -107,7 +177,6 @@ def process_label(image_path):
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            # Using the stable 2.5-flash model
             response = client.models.generate_content(
                 model="gemini-2.5-flash", 
                 contents=[
@@ -122,28 +191,35 @@ def process_label(image_path):
             )
             
             details: ShippingDetails = response.parsed
-            print(f"Extraction Successful: {details.name} | Order: {details.order_id} | Tracking: {details.tracking_id}")
-            
-            log_to_csv(details, filename)
+            result['gemini_status'] = "Success"
+            result['order_id'] = details.order_id
+            result['name'] = details.name
+            result['phone'] = details.phone
+            result['tracking_id'] = details.tracking_id
             
             if details.tracking_id:
-                send_whatsapp_message(details)
+                wa_success, wa_msg, payload = send_whatsapp_message(details)
+                result['wa_status'] = "Success" if wa_success else "Failed"
+                result['notes'] = wa_msg
+                result['wa_payload'] = payload
             else:
-                print(f"⚠️ Skipped WhatsApp notification for {filename} (No tracking ID found)")
+                result['wa_status'] = "Skipped"
+                result['notes'] = "No Tracking ID extracted"
                 
-            return True
+            return True, result # Move to next file
 
         except Exception as e:
             error_msg = str(e).lower()
-            if "429" in error_msg or "503" in error_msg or "high demand" in error_msg or "quota" in error_msg:
+            if "429" in error_msg or "503" in error_msg or "quota" in error_msg:
                 if attempt < max_retries - 1:
-                    sleep_time = 2 ** (attempt + 1)
-                    print(f"API bottleneck detected. Retrying in {sleep_time} seconds (Attempt {attempt + 1}/{max_retries})...")
-                    time.sleep(sleep_time)
-                    continue 
+                    time.sleep(2 ** (attempt + 1))
+                    continue
             
-            print(f"❌ Error processing {filename}: {e}")
-            return False
+            # Gemini completely failed
+            result['gemini_status'] = "Failed"
+            result['wa_status'] = "Skipped"
+            result['notes'] = f"Gemini Error: {e}"
+            return False, result
 
 if __name__ == "__main__":
     target_dir = "labels/pending"
@@ -158,13 +234,18 @@ if __name__ == "__main__":
         print("No labels found in labels/pending/")
         exit(0)
 
-    processed_count = 0
+    run_results = []
+    
     for filename in files:
         full_path = os.path.join(target_dir, filename)
-        if process_label(full_path):
+        print(f"Processing: {filename}")
+        
+        success, record = process_label(full_path)
+        run_results.append(record)
+        log_to_csv(record)
+        
+        if success:
             os.remove(full_path)
-            print(f"🧹 {filename} logged and deleted from pending.")
-            processed_count += 1
             
-    print(f"\n✅ Total labels processed: {processed_count}")
-    
+    # Send the final summary email after the loop finishes
+    send_summary_email(run_results)

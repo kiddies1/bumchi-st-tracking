@@ -19,22 +19,28 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v5 # Updated to v5
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.12' # Using a modern version to avoid EOL warnings
+          python-version: '3.12'
 
       - name: Install Dependencies
-        run: pip install google-genai # Updated to the new package
+        run: |
+          pip install google-genai pydantic
 
       - name: Run OCR and Move Files
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python -u process_label.py
 
-      - name: Commit Move
+      - name: Commit and Push Logs
         run: |
           git config --global user.name "LabelBot"
           git config --global user.email "bot@github.com"
+          
+          # Crucial: Stage the CSV file and the deletions in the labels folder
+          git add shipping_master_log.csv
           git add labels/
-          git commit -m "Automated: Moved processed labels" || echo "No changes"
+          
+          # [skip ci] prevents the workflow from triggering itself after the push
+          git commit -m "Automated: Logged labels and cleaned pending [skip ci]" || echo "No changes"
           git push

@@ -31,8 +31,7 @@ class ShippingDetails(BaseModel):
     tracking_id: Optional[str]
 
 def send_whatsapp_message(details: ShippingDetails):
-    """Sends the WA message and returns a tuple: (Success_Boolean, Error_Message)"""
-    to_number = "919994555088" # Hardcoded for testing
+    to_number = "919994555088" 
     url = f"https://graph.facebook.com/v19.0/{WA_PHONE_NUMBER_ID}/messages"
     
     headers = {
@@ -46,16 +45,35 @@ def send_whatsapp_message(details: ShippingDetails):
         "type": "template",
         "template": {
             "name": WA_TEMPLATE_NAME,
-            "language": {"code": "en"},
+            "language": {
+                # CHANGE THIS to "en_US" or "en_GB" if your template specifies a region!
+                "code": "en" 
+            },
             "components": [
                 {
                     "type": "body",
                     "parameters": [
-                        {"type": "text", "text": details.name or "Customer"},
-                        {"type": "text", "text": details.order_id or "Unknown"},
-                        {"type": "text", "text": "S T Couriers"},
-                        {"type": "text", "text": details.tracking_id or "Pending"},
-                        {"type": "text", "text": "https://stcourier.com/track/shipment"}
+                        # Added the "name" keys to match named variables.
+                        # If your Meta dashboard uses {{1}}, {{2}}, change these to "name": "1", "name": "2", etc.
+                        {"type": "text", "name": "name", "text": details.name or "Customer"},
+                        {"type": "text", "name": "order_id", "text": details.order_id or "Unknown"},
+                        {"type": "text", "name": "courier_name", "text": "S T Couriers"},
+                        {"type": "text", "name": "tracking_id", "text": details.tracking_id or "Pending"}
+                        
+                        # Note: If tracking_url is IN THE TEXT BODY, uncomment the line below.
+                        # {"type": "text", "name": "tracking_url", "text": "https://stcourier.com/track/shipment"}
+                    ]
+                },
+                # Note: If tracking_url is a CTA BUTTON, leave this block active. If it's not a button, delete this block.
+                {
+                    "type": "button",
+                    "sub_type": "url",
+                    "index": 0,
+                    "parameters": [
+                        {
+                            "type": "text",
+                            "text": "https://stcourier.com/track/shipment" # The dynamic part of your URL
+                        }
                     ]
                 }
             ]

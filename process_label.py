@@ -17,7 +17,7 @@ client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 WA_TOKEN = os.environ.get("WHATSAPP_TOKEN")
 WA_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_ID") 
-WA_TEMPLATE_NAME = "tracking_details"
+WA_TEMPLATE_NAME = "tracking_details" # Hardcoded per your approval
 
 EMAIL_SENDER = os.environ.get("GMAIL_SENDER")
 EMAIL_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
@@ -31,7 +31,8 @@ class ShippingDetails(BaseModel):
     tracking_id: Optional[str]
 
 def send_whatsapp_message(details: ShippingDetails):
-    to_number = "919994555088" 
+    """Sends the WA message and returns a tuple: (Success_Boolean, Error_Message, Payload)"""
+    to_number = "919994555088" # Hardcoded for testing. Update to details.phone when ready.
     url = f"https://graph.facebook.com/v19.0/{WA_PHONE_NUMBER_ID}/messages"
     
     headers = {
@@ -39,31 +40,27 @@ def send_whatsapp_message(details: ShippingDetails):
         "Content-Type": "application/json"
     }
     
-   payload = {
+    payload = {
         "messaging_product": "whatsapp",
         "to": to_number,
         "type": "template",
         "template": {
             "name": WA_TEMPLATE_NAME,
-            "language": {
-                "code": "en" # Ensure this perfectly matches your Meta template language!
-            },
+            "language": {"code": "en"},
             "components": [
                 {
                     "type": "body",
                     "parameters": [
-                        # Changed "name" to the strict Meta requirement: "parameter_name"
                         {"type": "text", "parameter_name": "name", "text": details.name or "Customer"},
                         {"type": "text", "parameter_name": "order_id", "text": details.order_id or "Unknown"},
                         {"type": "text", "parameter_name": "courier_name", "text": "S T Couriers"},
                         {"type": "text", "parameter_name": "tracking_id", "text": details.tracking_id or "Pending"}
                     ]
                 },
-                # The dynamic URL button
                 {
                     "type": "button",
                     "sub_type": "url",
-                    "index": 0,
+                    "index": 0, # Targets the first CTA button in your template
                     "parameters": [
                         {
                             "type": "text",
@@ -142,7 +139,7 @@ def send_summary_email(run_results: list):
         wa_color = "green" if r['wa_status'] == "Success" else "red"
         gemini_color = "green" if r['gemini_status'] == "Success" else "red"
         
-        # Format the payload to show what was sent
+        # Format the payload to show what was sent for debugging
         payload_str = f"<br><br><small><b>Message Payload:</b><br>{json.dumps(r.get('wa_payload', {}), indent=2)}</small>" if r.get('wa_payload') else ""
         
         html_content += f"""
@@ -184,6 +181,8 @@ def process_label(image_path):
         "notes": "", "wa_payload": {}
     }
     
+    print(f"--- Starting OCR for: {filename} ---")
+    
     with open(image_path, "rb") as f:
         image_bytes = f.read()
         
@@ -219,19 +218,22 @@ def process_label(image_path):
                 result['wa_status'] = "Skipped"
                 result['notes'] = "No Tracking ID extracted"
                 
-            return True, result # Move to next file
+            return True, result
 
         except Exception as e:
             error_msg = str(e).lower()
             if "429" in error_msg or "503" in error_msg or "quota" in error_msg:
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** (attempt + 1))
+                    sleep_time = 2 ** (attempt + 1)
+                    print(f"API bottleneck detected. Retrying in {sleep_time} seconds (Attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(sleep_time)
                     continue
             
             # Gemini completely failed
             result['gemini_status'] = "Failed"
             result['wa_status'] = "Skipped"
             result['notes'] = f"Gemini Error: {e}"
+            print(f"❌ Error processing {filename}: {e}")
             return False, result
 
 if __name__ == "__main__":
@@ -251,7 +253,6 @@ if __name__ == "__main__":
     
     for filename in files:
         full_path = os.path.join(target_dir, filename)
-        print(f"Processing: {filename}")
         
         success, record = process_label(full_path)
         run_results.append(record)
@@ -259,6 +260,10 @@ if __name__ == "__main__":
         
         if success:
             os.remove(full_path)
+            print(f"✅ Processed and deleted: {filename}\n")
+        else:
+            print(f"⚠️ Retaining {filename} due to processing failure.\n")
             
     # Send the final summary email after the loop finishes
     send_summary_email(run_results)
+    print(f"Total labels processed: {len(run_results)}")

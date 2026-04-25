@@ -32,7 +32,7 @@ class ShippingDetails(BaseModel):
 
 def send_whatsapp_message(details: ShippingDetails):
     """Sends the WA message and returns a tuple: (Success_Boolean, Error_Message, Payload)"""
-    to_number = "919994555088" # Hardcoded for testing. Update to details.phone when ready.
+    to_number = details.phone # Hardcoded for testing. Update to details.phone when ready.
     url = f"https://graph.facebook.com/v19.0/{WA_PHONE_NUMBER_ID}/messages"
     
     headers = {
